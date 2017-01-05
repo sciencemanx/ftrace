@@ -8,10 +8,12 @@
 #include <errno.h>
 
 #include "readelf.h"
+#include "functools.h"
 
 const uint8_t trap_inst = 0xCC; 
 
-const char *blacklist[] = {"frame_dummy", "register_tm_clones"};
+const char *blacklist[] = {"", "frame_dummy", "register_tm_clones",
+                           "deregister_tm_clones", "__do_global_dtors_aux"};
 
 void error(char *msg) {
     printf("[!] %s\n", msg);
@@ -100,6 +102,7 @@ int add_breakpoints(pid_t child, struct elf *e) {
         if (sym_in_section(e, i, ".text") && !in_blacklist(get_sym_name(e, i))) {
             // printf("adding breakpoint to %s\n", get_sym_name(e, i));
             add_breakpoint(child, get_sym_addr(e, i));
+            printf("%s has %d args\n", get_sym_name(e, i), n_func_args(e, i));
         }
     }
 
@@ -120,6 +123,8 @@ int trace(pid_t child, struct elf *e) {
 
     wait(&status);
 
+    // printf("%lx\n", ptrace(PTRACE_PEEKTEXT, child, 100, NULL));
+
     add_breakpoints(child, e);
     ptrace(PTRACE_CONT, child, NULL, NULL);
 
@@ -135,8 +140,8 @@ int trace(pid_t child, struct elf *e) {
         if (WSTOPSIG(status) == SIGTRAP) {
             if (ptrace(PTRACE_GETREGS, child, NULL, &regs) == -1) error("error getting regs");
 
-            sym_i = at_symbol(e, (void *) (regs.rip - 1)); // minus 1 because int 3 already executed
             bp_addr = bp_addr = (void *) (regs.rip - 1);
+            sym_i = at_symbol(e, bp_addr); // minus 1 because int 3 already executed
 
             if (sym_i == -1) {
                 // we are returning from a local function call

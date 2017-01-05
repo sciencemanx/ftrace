@@ -1,3 +1,5 @@
+#pragma once
+
 #include <elf.h>
 #include <stdint.h>
 #include <sys/stat.h>
@@ -28,6 +30,10 @@ void *get_sym_addr(struct elf *e, int i) {
 
 char *get_sym_name(struct elf *e, int i) {
     return &e->sym_names[e->syms[i].st_name];
+}
+
+size_t get_sym_size(struct elf *e, int i) {
+    return e->syms[i].st_size;
 }
 
 int get_sym_index(struct elf *e, char *name) {
