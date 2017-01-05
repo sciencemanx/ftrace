@@ -15,6 +15,8 @@ const uint8_t trap_inst = 0xCC;
 const char *blacklist[] = {"", "frame_dummy", "register_tm_clones",
                            "deregister_tm_clones", "__do_global_dtors_aux"};
 
+format_t *func_fmts = NULL;
+
 void error(char *msg) {
     printf("[!] %s\n", msg);
     exit(1);
@@ -94,17 +96,25 @@ bool in_blacklist(char *name) {
     return false;
 }
 
-int add_breakpoints(pid_t child, struct elf *e) {
+int register_functions(pid_t child, struct elf *e) {
     int i;
     Elf64_Sym s;
+    char fmt_buf[FMT_LEN];
 
     for (i = 0; i < e->n_syms; i++) {
         if (sym_in_section(e, i, ".text") && !in_blacklist(get_sym_name(e, i))) {
             // printf("adding breakpoint to %s\n", get_sym_name(e, i));
             add_breakpoint(child, get_sym_addr(e, i));
-            printf("%s has %d args\n", get_sym_name(e, i), n_func_args(e, i));
+
+            memset(fmt_buf, 0, sizeof(fmt_buf));
+            func_fmt(e, i, fmt_buf, sizeof(fmt_buf));
+            func_fmts = add_format(func_fmts, get_sym_addr(e, i), fmt_buf);
+
+            // printf("%s has %d args\n", get_sym_name(e, i), n_func_args(e, i));
         }
     }
+
+    // print_formats(func_fmts);
 
     return 0;
 }
@@ -125,7 +135,7 @@ int trace(pid_t child, struct elf *e) {
 
     // printf("%lx\n", ptrace(PTRACE_PEEKTEXT, child, 100, NULL));
 
-    add_breakpoints(child, e);
+    register_functions(child, e);
     ptrace(PTRACE_CONT, child, NULL, NULL);
 
     depth = 0;
@@ -149,8 +159,10 @@ int trace(pid_t child, struct elf *e) {
             } else {
                 // sym_i != -1 therefore we are at a function breakpoint
                 print_depth(depth * 2);
-                printf("%s(%lld)\n", 
-                    get_sym_name(e, sym_i), regs.rdi);
+                // printf("%s(%lld)\n", 
+                //     get_sym_name(e, sym_i), regs.rdi);
+                printf(get_format(func_fmts, bp_addr), regs.rdi, regs.rsi, regs.rdx);
+                printf("\n");
 
                 ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);
                 if (addr_in_section(e, ret_addr, ".text")) {

@@ -1,11 +1,50 @@
 #include <capstone/capstone.h>
+#include <string.h>
+
 #include "readelf.h"
+
+#define FMT_LEN 100
 
 typedef enum reg_state {
 	REG_UNDEF,
 	REG_WRITTEN,
 	REG_READ
 } reg_state;
+
+typedef struct format {
+    void *addr;
+    char str[FMT_LEN];
+    struct format *next;
+} format_t;
+
+format_t *add_format(format_t *fmt, void *addr, char *str) {
+	format_t *new_fmt;
+
+	new_fmt = malloc(sizeof(*new_fmt));
+	if (new_fmt == NULL) return NULL;
+
+	new_fmt->addr = addr;
+	strncpy(new_fmt->str, str, sizeof(new_fmt->str) - 1);
+	new_fmt->next = fmt;
+
+	return new_fmt;
+}
+
+char *get_format(format_t *fmt, void *addr) {
+	while (fmt != NULL) {
+		if (fmt->addr == addr) return fmt->str;
+		fmt = fmt->next;
+	}
+
+	return NULL;
+}
+
+void print_formats(format_t *fmt) {
+	if (fmt == NULL) return;
+	printf("[%p] ", fmt->addr);
+	puts(fmt->str);
+	print_formats(fmt->next);
+}
 
 int get_reg_arg_index(x86_reg reg) {
 	switch (reg) {
@@ -68,8 +107,8 @@ int n_func_args(struct elf *e, int sym_i) {
 
 	count = cs_disasm(handle, code, size, (uint64_t) func, 0, &all_insn);
 
-	printf("%s [%p] size: %lx, count: %lx\n", 
-		get_sym_name(e, sym_i), func, size, count);
+	// printf("%s [%p] size: %lx, count: %lx\n", 
+	// 	get_sym_name(e, sym_i), func, size, count);
 
 	for (i = 0; i < count; i++) {
 		insn = &all_insn[i];
@@ -94,4 +133,20 @@ int n_func_args(struct elf *e, int sym_i) {
 	}
 
 	return n_args_from_regs(arg_regs, 4);
+}
+
+int func_fmt(struct elf *e, int sym_i, char *buf, int n) {
+	int n_args, i;
+
+	strncat(buf, get_sym_name(e, sym_i), n);
+	strncat(buf, "(", n);
+
+	n_args = n_func_args(e, sym_i);
+
+	for (i = 0; i < n_args - 1; i++) {
+		strncat(buf, "0x%lx, ", n);
+	}
+	if (n_args > 0) strncat(buf, "0x%lx", n);
+	strncat(buf, ")", n);
+
 }
