@@ -3,75 +3,99 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdbool.h>
 
 struct elf {
-	uint8_t *file;
-	Elf64_Ehdr ehdr;
-	Elf64_Phdr *phdrs;
-	int n_phdrs;
-	Elf64_Shdr *shdrs;
-	int n_shdrs;
-	char *shdr_names;
-	Elf64_Sym *syms;
-	int n_syms;
-	char *sym_names;
+    uint8_t *file;
+    Elf64_Ehdr ehdr;
+    Elf64_Phdr *phdrs;
+    int n_phdrs;
+    Elf64_Shdr *shdrs;
+    int n_shdrs;
+    char *shdr_names;
+    Elf64_Sym *syms;
+    int n_syms;
+    char *sym_names;
 };
 
 char *get_shdr_name(struct elf *e, int i) {
-	return &e->shdr_names[e->shdrs[i].sh_name];
+    return &e->shdr_names[e->shdrs[i].sh_name];
 }
 
 void *get_sym_addr(struct elf *e, int i) {
-	return (void *) e->syms[i].st_value;
+    return (void *) e->syms[i].st_value;
 }
 
 char *get_sym_name(struct elf *e, int i) {
-	return &e->sym_names[e->syms[i].st_name];
+    return &e->sym_names[e->syms[i].st_name];
 }
 
 int get_sym_index(struct elf *e, char *name) {
-	int i;
+    int i;
 
-	for (i = 0; i < e->n_syms; i++) {
-		if (!strcmp(name, get_sym_name(e, i))) return i;
-	}
+    for (i = 0; i < e->n_syms; i++) {
+        if (!strcmp(name, get_sym_name(e, i))) return i;
+    }
 
-	return -1;
+    return -1;
 }
 
 Elf64_Shdr *get_shdr(struct elf *e, char *name) {
-	int i;
+    int i;
 
-	for (i = 0; i < e->n_shdrs; i++) {
-		if (!strcmp(name, get_shdr_name(e, i))) return &e->shdrs[i];
-	}
+    for (i = 0; i < e->n_shdrs; i++) {
+        if (!strcmp(name, get_shdr_name(e, i))) return &e->shdrs[i];
+    }
 
-	return NULL;
+    return NULL;
+}
+
+bool sym_in_section(struct elf *e, int i, char *name) {
+    Elf64_Shdr *shdr;
+    uint64_t sec_start, sec_end, addr;
+
+    addr = (uint64_t) get_sym_addr(e, i);
+
+    shdr = get_shdr(e, name);
+    sec_start = shdr->sh_addr;
+    sec_end = sec_start + shdr->sh_size;
+
+    return addr >= sec_start && addr < sec_end;
+}
+
+uint8_t *get_code(struct elf *e, void *addr) {
+    Elf64_Shdr *text;
+
+    text = get_shdr(e, ".text");
+
+    return &e->file[(uint64_t) addr - (uint64_t) text->sh_addr + text->sh_offset];
 }
 
 struct elf *readelf(int fd) {
-	struct stat st;
-	struct elf *e;
-	Elf64_Shdr *sym_hdr;
+    struct stat st;
+    struct elf *e;
+    Elf64_Shdr *sym_hdr;
 
-	e = malloc(sizeof(*e));
+    e = malloc(sizeof(*e));
 
-	fstat(fd, &st);
-	e->file = malloc(st.st_size);
-	read(fd, e->file, st.st_size);
+    fstat(fd, &st);
+    e->file = malloc(st.st_size);
+    read(fd, e->file, st.st_size);
 
-	e->ehdr = *(Elf64_Ehdr *) e->file;
+    e->ehdr = *(Elf64_Ehdr *) e->file;
 
-	e->phdrs = (Elf64_Phdr *) &e->file[e->ehdr.e_phoff];
-	e->n_phdrs = e->ehdr.e_phnum;
+    e->phdrs = (Elf64_Phdr *) &e->file[e->ehdr.e_phoff];
+    e->n_phdrs = e->ehdr.e_phnum;
 
-	e->shdrs = (Elf64_Shdr *) &e->file[e->ehdr.e_shoff];
-	e->n_shdrs = e->ehdr.e_shnum;
-	e->shdr_names = &e->file[e->shdrs[e->ehdr.e_shstrndx].sh_offset];
+    e->shdrs = (Elf64_Shdr *) &e->file[e->ehdr.e_shoff];
+    e->n_shdrs = e->ehdr.e_shnum;
+    e->shdr_names = &e->file[e->shdrs[e->ehdr.e_shstrndx].sh_offset];
 
-	sym_hdr = get_shdr(e, ".symtab");
+    sym_hdr = get_shdr(e, ".symtab");
 
-	e->syms = (Elf64_Sym *) &e->file[sym_hdr->sh_offset];
-	e->n_syms = sym_hdr->sh_size / sym_hdr->sh_entsize;
-	e->sym_names = &e->file[e->shdrs[sym_hdr->sh_link].sh_offset];
+    e->syms = (Elf64_Sym *) &e->file[sym_hdr->sh_offset];
+    e->n_syms = sym_hdr->sh_size / sym_hdr->sh_entsize;
+    e->sym_names = &e->file[e->shdrs[sym_hdr->sh_link].sh_offset];
+
+    return e;
 }
