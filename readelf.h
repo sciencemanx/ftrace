@@ -50,25 +50,27 @@ Elf64_Shdr *get_shdr(struct elf *e, char *name) {
     return NULL;
 }
 
-bool sym_in_section(struct elf *e, int i, char *name) {
+bool addr_in_section(struct elf *e, void *addr, char *name) {
     Elf64_Shdr *shdr;
-    uint64_t sec_start, sec_end, addr;
-
-    addr = (uint64_t) get_sym_addr(e, i);
+    uint64_t sec_start, sec_end;
 
     shdr = get_shdr(e, name);
     sec_start = shdr->sh_addr;
     sec_end = sec_start + shdr->sh_size;
 
-    return addr >= sec_start && addr < sec_end;
+    return (uint64_t) addr >= sec_start && (uint64_t) addr < sec_end;
 }
 
-uint8_t *get_code(struct elf *e, void *addr) {
-    Elf64_Shdr *text;
+bool sym_in_section(struct elf *e, int i, char *name) {
+    return addr_in_section(e, get_sym_addr(e, i), name);
+}
 
-    text = get_shdr(e, ".text");
+uint8_t *bytes_from_addr_in_section(struct elf *e, void *addr, char *name) {
+    Elf64_Shdr *shdr;
 
-    return &e->file[(uint64_t) addr - (uint64_t) text->sh_addr + text->sh_offset];
+    shdr = get_shdr(e, name);
+
+    return &e->file[(uint64_t) addr - (uint64_t) shdr->sh_addr + shdr->sh_offset];
 }
 
 struct elf *readelf(int fd) {

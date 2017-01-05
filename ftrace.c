@@ -11,6 +11,8 @@
 
 const uint8_t trap_inst = 0xCC; 
 
+const char *blacklist[] = {"frame_dummy", "register_tm_clones"};
+
 void error(char *msg) {
     printf("[!] %s\n", msg);
     exit(1);
@@ -75,9 +77,19 @@ int add_breakpoint(pid_t child, void *addr) {
 
 int restore_code(pid_t child, void *addr, int len, struct elf *e) {
 
-    write_data(child, addr, get_code(e, addr), len);
+    write_data(child, addr, bytes_from_addr_in_section(e, addr, ".text"), len);
 
     return 0;
+}
+
+bool in_blacklist(char *name) {
+    int i;
+
+    for (i = 0; i < sizeof(blacklist) / sizeof(blacklist[0]); i++) {
+        if (!strcmp(name, blacklist[i])) return true;
+    }
+
+    return false;
 }
 
 int add_breakpoints(pid_t child, struct elf *e) {
@@ -85,7 +97,7 @@ int add_breakpoints(pid_t child, struct elf *e) {
     Elf64_Sym s;
 
     for (i = 0; i < e->n_syms; i++) {
-        if (sym_in_section(e, i, ".text")) {
+        if (sym_in_section(e, i, ".text") && !in_blacklist(get_sym_name(e, i))) {
             // printf("adding breakpoint to %s\n", get_sym_name(e, i));
             add_breakpoint(child, get_sym_addr(e, i));
         }
@@ -94,46 +106,70 @@ int add_breakpoints(pid_t child, struct elf *e) {
     return 0;
 }
 
+void print_depth(int d) {
+    while (d--) {
+        printf(" ");
+    }
+}
+
 int trace(pid_t child, struct elf *e) {
     int status;
     struct user_regs_struct regs;
     int sym_i, depth;
-    void *sym_addr;
+    void *bp_addr, *ret_addr;
 
     wait(&status);
 
     add_breakpoints(child, e);
     ptrace(PTRACE_CONT, child, NULL, NULL);
 
+    depth = 0;
     while (1) {
         wait(&status);
 
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            printf("traced program exited\n");
+            // printf("child exited of signal %d\n", WSTOPSIG(status));
             break;
         }
 
         if (WSTOPSIG(status) == SIGTRAP) {
-            ptrace(PTRACE_GETREGS, child, NULL, &regs);
+            if (ptrace(PTRACE_GETREGS, child, NULL, &regs) == -1) error("error getting regs");
 
             sym_i = at_symbol(e, (void *) (regs.rip - 1)); // minus 1 because int 3 already executed
-            if (sym_i == -1) error("encountered breakpoint at nonsymbol location");
-            printf("%s(%llx, %llx, %llx)\n", 
-                get_sym_name(e, sym_i), regs.rdi, regs.rsi, regs.rdx);
+            bp_addr = bp_addr = (void *) (regs.rip - 1);
 
-            sym_addr = get_sym_addr(e, sym_i);
+            if (sym_i == -1) {
+                // we are returning from a local function call
+                depth -= 1;
+            } else {
+                // sym_i != -1 therefore we are at a function breakpoint
+                print_depth(depth * 2);
+                printf("%s(%lld)\n", 
+                    get_sym_name(e, sym_i), regs.rdi);
+
+                ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);
+                if (addr_in_section(e, ret_addr, ".text")) {
+                    // printf("adding bp to return address %p\n", ret_addr);
+                    add_breakpoint(child, ret_addr);
+                    depth += 1;
+                }
+            }
+            
 
             regs.rip -= 1;
             ptrace(PTRACE_SETREGS, child, NULL, &regs);
-            restore_code(child, sym_addr, 1, e);
+            // printf("restoring bp %p\n", bp_addr);
+            restore_code(child, bp_addr, 1, e);
 
             ptrace(PTRACE_SINGLESTEP, child, NULL, NULL);
             wait(&status);
 
-            add_breakpoint(child, sym_addr);
+            add_breakpoint(child, bp_addr);
 
             ptrace(PTRACE_CONT, child, NULL, NULL);
         } else {
+            // wasn't our breakpoint -- deliver signal to child
+            // printf("sending signal %d to child\n", WSTOPSIG(status));
             ptrace(PTRACE_CONT, child, NULL, WSTOPSIG(status));
         }
     }
