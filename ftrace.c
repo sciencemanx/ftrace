@@ -9,6 +9,7 @@
 
 #include "readelf.h"
 #include "functools.h"
+#include "ptrace_helpers.h"
 
 const uint8_t trap_inst = 0xCC; 
 
@@ -42,35 +43,6 @@ int at_symbol(struct elf *e, void *addr) {
     return -1;
 }
 
-int write_data(pid_t child, void *addr, uint8_t *data, int len) {
-    int remaining;
-    union {
-        uint64_t val;
-        char bytes[sizeof(uint64_t)];
-    } u; // union idea taken from http://www.linuxjournal.com/article/6210
-
-    while (len) {
-        if (len < sizeof(uint64_t)) break;
-
-        if (ptrace(PTRACE_POKETEXT, child, addr, data) == -1) return -1;
-
-        len -= sizeof(uint64_t);
-        data += sizeof(uint64_t);
-        addr += sizeof(uint64_t);
-    }
-
-    errno = 0;
-    u.val = ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
-    if (u.val == -1 && errno != 0) return -1;
-    // printf("before: %lx\n", u.val);
-    memcpy(u.bytes, data, len % sizeof(uint64_t));
-    if (ptrace(PTRACE_POKETEXT, child, addr, u.val) == -1) return -1;
-    // u.val = ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
-    // printf("after: %lx\n", u.val);
-
-    return 0;
-}
-
 int add_breakpoint(pid_t child, void *addr) {
     uint8_t ins[1] = {trap_inst};
 
@@ -98,7 +70,6 @@ bool in_blacklist(char *name) {
 
 int register_functions(pid_t child, struct elf *e) {
     int i;
-    Elf64_Sym s;
     char fmt_buf[FMT_LEN];
 
     for (i = 0; i < e->n_syms; i++) {
@@ -107,8 +78,8 @@ int register_functions(pid_t child, struct elf *e) {
             add_breakpoint(child, get_sym_addr(e, i));
 
             memset(fmt_buf, 0, sizeof(fmt_buf));
-            func_fmt(e, i, fmt_buf, sizeof(fmt_buf));
-            func_fmts = add_format(func_fmts, get_sym_addr(e, i), fmt_buf);
+            basic_func_fmt(e, i, fmt_buf, sizeof(fmt_buf));
+            func_fmts = add_format(func_fmts, get_sym_addr(e, i), i, fmt_buf);
 
             // printf("%s has %d args\n", get_sym_name(e, i), n_func_args(e, i));
         }
@@ -130,6 +101,8 @@ int trace(pid_t child, struct elf *e) {
     struct user_regs_struct regs;
     int sym_i, depth;
     void *bp_addr, *ret_addr;
+    format_t *fmt;
+    char fmt_buf[FMT_LEN];
 
     wait(&status);
 
@@ -161,7 +134,16 @@ int trace(pid_t child, struct elf *e) {
                 print_depth(depth * 2);
                 // printf("%s(%lld)\n", 
                 //     get_sym_name(e, sym_i), regs.rdi);
-                printf(get_format(func_fmts, bp_addr), regs.rdi, regs.rsi, regs.rdx);
+                fmt = get_format(func_fmts, bp_addr);
+
+                if (!fmt->fancy) {
+                    memset(fmt_buf, 0, sizeof(fmt_buf));
+                    fancy_func_fmt(e, fmt->sym_i, fmt_buf, sizeof(fmt_buf), child);
+                    update_format(func_fmts, fmt->addr, fmt_buf);
+                    fmt->fancy = true;
+                }
+
+                printf(fmt->str, regs.rdi, regs.rsi, regs.rdx);
                 printf("\n");
 
                 ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);

@@ -1,7 +1,9 @@
 #include <capstone/capstone.h>
 #include <string.h>
+#include <errno.h>
 
 #include "readelf.h"
+#include "ptrace_helpers.h"
 
 #define FMT_LEN 100
 
@@ -13,30 +15,46 @@ typedef enum reg_state {
 
 typedef struct format {
     void *addr;
+    int sym_i;
     char str[FMT_LEN];
+    bool fancy;
     struct format *next;
 } format_t;
 
-format_t *add_format(format_t *fmt, void *addr, char *str) {
+format_t *add_format(format_t *fmt, void *addr, int sym_i, char *str) {
 	format_t *new_fmt;
 
 	new_fmt = malloc(sizeof(*new_fmt));
 	if (new_fmt == NULL) return NULL;
 
 	new_fmt->addr = addr;
+	new_fmt->sym_i = sym_i;
 	strncpy(new_fmt->str, str, sizeof(new_fmt->str) - 1);
+	new_fmt->fancy = false;
 	new_fmt->next = fmt;
 
 	return new_fmt;
 }
 
-char *get_format(format_t *fmt, void *addr) {
+format_t *get_format(format_t *fmt, void *addr) {
 	while (fmt != NULL) {
-		if (fmt->addr == addr) return fmt->str;
+		if (fmt->addr == addr) return fmt;
 		fmt = fmt->next;
 	}
 
 	return NULL;
+}
+
+bool update_format(format_t *fmt, void *addr, char *str) {
+	while (fmt != NULL) {
+		if (fmt->addr == addr) {
+			strncpy(fmt->str, str, sizeof(fmt->str) - 1);
+			return true;
+		}
+		fmt = fmt->next;
+	}
+
+	return false;
 }
 
 void print_formats(format_t *fmt) {
@@ -135,7 +153,7 @@ int n_func_args(struct elf *e, int sym_i) {
 	return n_args_from_regs(arg_regs, 4);
 }
 
-int func_fmt(struct elf *e, int sym_i, char *buf, int n) {
+int basic_func_fmt(struct elf *e, int sym_i, char *buf, int n) {
 	int n_args, i;
 
 	strncat(buf, get_sym_name(e, sym_i), n);
@@ -149,4 +167,61 @@ int func_fmt(struct elf *e, int sym_i, char *buf, int n) {
 	if (n_args > 0) strncat(buf, "0x%lx", n);
 	strncat(buf, ")", n);
 
+	return 0;
+}
+
+uint64_t get_n_arg(struct user_regs_struct *regs, int n) {
+	switch (n) {
+		case 0:
+			return regs->rdi;
+		case 1:
+			return regs->rsi;
+		case 2:
+			return regs->rdx;
+		case 3:
+			return regs->rcx;
+		default:
+			return (uint64_t) -1;
+	}
+}
+
+#define MAX_READ 20
+
+char *get_arg_fmt(uint64_t arg, pid_t pid) {
+	uint64_t val;
+	uint8_t buf[20];
+
+	errno = 0;
+	val = ptrace(PTRACE_PEEKDATA, pid, arg, NULL);
+	if (errno != 0) return "%lu";
+
+	// read_data(pid, (void *) arg, buf, sizeof(buf));
+
+	// if (buf[0] == '4') {
+	// 	puts((char *) buf);
+	// 	return "\"%s\"";
+	// }
+
+	return "*%p";
+}
+
+int fancy_func_fmt(struct elf *e, int sym_i, char *buf, int n, pid_t pid) {
+	int n_args, i;
+	struct user_regs_struct regs;
+
+	strncat(buf, get_sym_name(e, sym_i), n);
+	strncat(buf, "(", n);
+
+	ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+
+	n_args = n_func_args(e, sym_i);
+
+	for (i = 0; i < n_args - 1; i++) {
+		strncat(buf, get_arg_fmt(get_n_arg(&regs, i), pid), n);
+		strncat(buf, ", ", n);
+	}
+	if (n_args > 0) strncat(buf, get_arg_fmt(get_n_arg(&regs, i), pid), n);
+	strncat(buf, ")", n);
+
+	return 0;
 }
