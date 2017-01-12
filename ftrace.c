@@ -24,7 +24,12 @@ void error(char *msg) {
 }
 
 void usage(char *prog) {
-    printf("Usage: %s <program> [arg 1] [arg2] ...\n", prog);
+    printf("Usage: %s <program> [arg 1] [arg2] ...\n\n"
+
+           "Optional parameters:\n"
+           "  -h          - display this message\n\n",
+           
+           prog);
     exit(1);
 }
 
