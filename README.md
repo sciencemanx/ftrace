@@ -5,6 +5,7 @@
 - [Introduction](#introduction)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Example](#example)
 - [Future work](#future-work)
 - [Dependencies](#dependencies)
 - [Limitations](#limitations)
@@ -32,6 +33,42 @@ Some other fancy stuff happens in the background. For instance, if no header fil
 - `-R` - display function return values
 - `-o <file>` - specifies output file (replaces stderr)
 - `-h` - display this message
+
+## Example
+
+### test.c
+``` c
+#include <stdio.h>
+#include <stdlib.h>
+
+int fib(int n) {
+	if (n == 0 || n == 1) return 1;
+	else return fib(n - 1) + fib(n - 2);
+}
+
+int main(int argc, char **argv) {
+	int n = atoi(argv[1]);
+	printf("%d\n", fib(n));
+	return 0;
+}
+```
+
+
+```
+$ gcc -o test test.c
+$ ./ftrace ./test 3
+_start()
+__libc_csu_init(2, *0x7ffe0cb39158, *0x7ffe0cb39170)
+main(2, *0x7ffe0cb39158)
+get_n(*0x7ffe0cb3986c)
+fib(3)
+  fib(2)
+    fib(1)
+    fib(0)
+  fib(1)
+3
+```
+
 
 ## Future work
 
