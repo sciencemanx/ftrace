@@ -10,6 +10,7 @@
 #include "readelf.h"
 #include "functools.h"
 #include "ptrace_helpers.h"
+#include "logging.h"
 
 const uint8_t trap_inst = 0xCC; 
 
@@ -18,17 +19,21 @@ const char *blacklist[] = {"", "frame_dummy", "register_tm_clones",
 
 format_t *func_fmts = NULL;
 
-void error(char *msg) {
-    printf("[!] %s\n", msg);
-    exit(1);
-}
+// globals from command line arguments
+char *header_file = NULL;
+char *out_file = NULL;
+bool show_ret = false;
+char **traced_argv;
 
 void usage(char *prog) {
     printf("Usage: %s <program> [arg 1] [arg2] ...\n\n"
 
            "Optional parameters:\n"
+           "  -H <file>   - header file to use for function logging\n"
+           "  -R          - display function return values\n"
+           "  -o <file>   - specifies output file (replaces stderr)\n"
            "  -h          - display this message\n\n",
-           
+
            prog);
     exit(1);
 }
@@ -97,7 +102,7 @@ int register_functions(pid_t child, struct elf *e) {
 
 void print_depth(int d) {
     while (d--) {
-        printf(" ");
+        trace_print(" ");
     }
 }
 
@@ -110,8 +115,6 @@ int trace(pid_t child, struct elf *e) {
     char fmt_buf[FMT_LEN];
 
     wait(&status);
-
-    // printf("%lx\n", ptrace(PTRACE_PEEKTEXT, child, 100, NULL));
 
     register_functions(child, e);
     ptrace(PTRACE_CONT, child, NULL, NULL);
@@ -148,8 +151,8 @@ int trace(pid_t child, struct elf *e) {
                     fmt->fancy = true;
                 }
 
-                printf(fmt->str, regs.rdi, regs.rsi, regs.rdx);
-                printf("\n");
+                trace_print(fmt->str, regs.rdi, regs.rsi, regs.rdx);
+                trace_print("\n");
 
                 ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);
                 if (addr_in_section(e, ret_addr, ".text")) {
@@ -185,10 +188,36 @@ int main(int argc, char **argv) {
     struct elf *e;
     int fd, i;
     pid_t pid;
+    char opt;
 
-    if (argc < 2) usage(argv[0]);
+    if (argc == 2) usage(argv[0]);
 
-    fd = open(argv[1], O_RDONLY);
+    while ((opt = getopt(argc, argv, "+H:Ro:h")) != -1) {
+        switch (opt) {
+            case 'H':
+                // read in header file and set formats accordingly
+                printf("Option 'H' not yet supported sorry!\n");
+                break;
+            case 'R':
+                printf("Option 'R' not yet supported sorry!\n");
+                break;
+            case 'o':
+                fd = open(optarg, O_WRONLY | O_CREAT | O_TRUNC);
+                if (fd == -1) printf("Couldn't open output file %s\n", optarg);
+                else trace_fd = fd;
+                break;
+            case 'h':
+                usage(argv[0]);
+                break;
+            default:
+                usage(argv[0]);
+                break;
+        }
+    }
+
+    traced_argv = argv + optind;
+
+    fd = open(traced_argv[0], O_RDONLY);
 
     if (fd == -1) error("failed to open file");
 
@@ -200,9 +229,12 @@ int main(int argc, char **argv) {
 
     if (pid == -1) error("failed to fork");
 
-    if (pid == 0) get_traced(argv + 1); // no return
-
-    if (trace(pid, e) == -1) error("failed to trace program");
+    if (pid == 0) {
+        get_traced(traced_argv); // no return
+    } else {
+        if (trace(pid, e) == -1) error("failed to trace program");
+    }
+    
 
     return 0;
 }
