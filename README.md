@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
 	return 0;
 }
 ```
-
+  
 
 ```
 $ gcc -o test test.c
@@ -60,7 +60,6 @@ $ ./ftrace ./test 3
 _start()
 __libc_csu_init(2, *0x7ffe0cb39158, *0x7ffe0cb39170)
 main(2, *0x7ffe0cb39158)
-get_n(*0x7ffe0cb3986c)
 fib(3)
   fib(2)
     fib(1)
