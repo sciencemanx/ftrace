@@ -2,15 +2,16 @@
 > ltrace/strace but for local functions
 
 ## Contents
-- Introduction
-- Installation
-- Usage
-- Future work
-- Dependencies
-- Limitations
+- [Introduction](#introduction)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Future work](#future-work)
+- [Dependencies](#dependencies)
+- [Limitations](#limitations)
 
 ## Introduction
 The basic idea behind the implementation is:
+
 1. Read in ELF file and identify symbols
 2. Fork and ptrace target process
 3. Add breakpoints to all symbols
@@ -23,7 +24,7 @@ Some other fancy stuff happens in the background. For instance, if no header fil
 
 ## Usage
 
-> Usage: `./ftrace <program> [arg 1] [arg2] ...`
+> `./ftrace <program> [arg 1] [arg2] ...`
 
 ### Optional parameters
 - `-C` - adds colored output
