@@ -13,21 +13,19 @@
 // this flag determines whether these functions actually print anything
 bool verbose = true;
 int trace_fd = 2;
-
-char *start_color = "";
-char *end_color = "";
+bool colored = false;
 
 // pass through to printf that can be disabled by the verbose flag [white]
-void trace_print(char *msg, ...) {
+void trace_print(char *color, char *msg, ...) {
 	va_list args;
 
 	if (!verbose) return;
 
 	va_start(args, msg);
 
-	dprintf(trace_fd, "%s", start_color);
+	if (colored) dprintf(trace_fd, "%s", color);
 	vdprintf(trace_fd, msg, args);
-	dprintf(trace_fd, "%s", end_color);
+	if (colored) dprintf(trace_fd, "%s", RESET);
 }
 
 // logs an error to the console and quits - only for extreme errors [red]

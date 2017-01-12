@@ -126,7 +126,7 @@ int register_functions(struct elf *e) {
 }
 
 void print_depth(int d) {
-    while (d--) trace_print(" ");
+    while (d--) trace_print(RESET, " ");
 }
 
 void trace(pid_t pid) {
@@ -172,7 +172,7 @@ void trace(pid_t pid) {
 
                 if (ret_fmt != NULL) {
                     print_depth(depth * 2);
-                    trace_print(ret_fmt, get_call(), regs.rax);
+                    trace_print(RED, ret_fmt, get_call(), regs.rax);
                 }
                 
                 delete_call();
@@ -191,7 +191,7 @@ void trace(pid_t pid) {
                 add_call(sig);
 
                 print_depth(depth * 2);
-                trace_print(call_fmt, sig);
+                trace_print(GREEN, call_fmt, sig);
 
                 ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);
                 if (addr_in_section(e, ret_addr, ".text")) {
@@ -231,8 +231,7 @@ int main(int argc, char **argv) {
     while ((opt = getopt(argc, argv, "+CH:Ro:h")) != -1) {
         switch (opt) {
             case 'C':
-                start_color = GREEN;
-                end_color = RESET;
+                colored = true;
                 break;
             case 'H':
                 // read in header file and set formats accordingly
