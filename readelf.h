@@ -46,6 +46,16 @@ int get_sym_index(struct elf *e, char *name) {
     return -1;
 }
 
+int at_symbol(struct elf *e, void *addr) {
+    int i;
+
+    for (i = 0; i < e->n_syms; i++) {
+        if (get_sym_addr(e, i) == addr) return i;
+    }
+
+    return -1;
+}
+
 Elf64_Shdr *get_shdr(struct elf *e, char *name) {
     int i;
 

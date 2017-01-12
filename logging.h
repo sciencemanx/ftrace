@@ -14,6 +14,9 @@
 bool verbose = true;
 int trace_fd = 2;
 
+char *start_color = "";
+char *end_color = "";
+
 // pass through to printf that can be disabled by the verbose flag [white]
 void trace_print(char *msg, ...) {
 	va_list args;
@@ -22,7 +25,9 @@ void trace_print(char *msg, ...) {
 
 	va_start(args, msg);
 
+	dprintf(trace_fd, "%s", start_color);
 	vdprintf(trace_fd, msg, args);
+	dprintf(trace_fd, "%s", end_color);
 }
 
 // logs an error to the console and quits - only for extreme errors [red]

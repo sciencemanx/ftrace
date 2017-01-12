@@ -1,9 +1,12 @@
+#pragma once
+
 #include <capstone/capstone.h>
 #include <string.h>
 #include <errno.h>
 
 #include "readelf.h"
 #include "ptrace_helpers.h"
+#include "logging.h"
 
 #define FMT_LEN 100
 
