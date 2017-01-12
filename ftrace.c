@@ -12,16 +12,42 @@
 #include "ptrace_helpers.h"
 #include "logging.h"
 
+#define SIG_LEN 100
+
+typedef struct callstack {
+    char sig[SIG_LEN];
+    struct callstack *prev;
+} callstack_t;
+
 const uint8_t trap_inst = 0xCC; 
 
 const char *blacklist[] = {"", "frame_dummy", "register_tm_clones",
                            "deregister_tm_clones", "__do_global_dtors_aux"};
 
+void usage(char *prog);
+
+void add_call(char sig[SIG_LEN]);
+char *get_call();
+void delete_call();
+
+int add_breakpoint(void *addr);
+int restore_code(void *addr, int len, struct elf *e);
+
+bool in_blacklist(char *name);
+int register_functions(struct elf *e);
+
+void print_depth(int d);
+void trace(pid_t pid);
+void traced();
+
 format_t *func_fmts = NULL;
+callstack_t *call_stack = NULL;
 
 // globals from command line arguments
 bool show_ret = false;
 char **traced_argv;
+char *call_fmt = "%s\n";
+char *ret_fmt = NULL;
 
 pid_t child;
 
@@ -39,9 +65,28 @@ void usage(char *prog) {
     exit(1);
 }
 
-void traced() {
-    if (ptrace(PTRACE_TRACEME, NULL, NULL, NULL) == -1) error("traceme failed");
-    if (execvp(traced_argv[0], traced_argv) == -1) error("could not execute file");
+void add_call(char sig[SIG_LEN]) {
+    callstack_t *new_call;
+
+    new_call = malloc(sizeof(*new_call));
+    memcpy(new_call->sig, sig, SIG_LEN);
+    new_call->prev = call_stack;
+    call_stack = new_call;
+}
+
+char *get_call() {
+    if (call_stack == NULL) return NULL;
+    else return call_stack->sig;
+}
+
+void delete_call() {
+    callstack_t *tmp;
+
+    if (call_stack == NULL) return;
+
+    tmp = call_stack;
+    call_stack = call_stack->prev;
+    free(tmp);
 }
 
 int add_breakpoint(void *addr) {
@@ -81,9 +126,7 @@ int register_functions(struct elf *e) {
 }
 
 void print_depth(int d) {
-    while (d--) {
-        trace_print(" ");
-    }
+    while (d--) trace_print(" ");
 }
 
 void trace(pid_t pid) {
@@ -92,7 +135,7 @@ void trace(pid_t pid) {
     int sym_i, depth;
     void *bp_addr, *ret_addr;
     format_t *fmt;
-    char fmt_buf[FMT_LEN];
+    char fmt_buf[FMT_LEN], sig[SIG_LEN];
     struct elf *e;
 
     child = pid;
@@ -126,11 +169,15 @@ void trace(pid_t pid) {
             if (sym_i == -1) {
                 // we are returning from a local function call
                 depth -= 1;
+
+                if (ret_fmt != NULL) {
+                    print_depth(depth * 2);
+                    trace_print(ret_fmt, get_call(), regs.rax);
+                }
+                
+                delete_call();
             } else {
                 // sym_i != -1 therefore we are at a function breakpoint
-                print_depth(depth * 2);
-                // printf("%s(%lld)\n", 
-                //     get_sym_name(e, sym_i), regs.rdi);
                 fmt = get_format(func_fmts, bp_addr);
 
                 if (!fmt->fancy) {
@@ -140,21 +187,21 @@ void trace(pid_t pid) {
                     fmt->fancy = true;
                 }
 
-                trace_print(fmt->str, regs.rdi, regs.rsi, regs.rdx);
-                trace_print("\n");
+                snprintf(sig, SIG_LEN - 1, fmt->str, regs.rdi, regs.rsi, regs.rdx);
+                add_call(sig);
+
+                print_depth(depth * 2);
+                trace_print(call_fmt, sig);
 
                 ret_addr = (void *) ptrace(PTRACE_PEEKTEXT, child, regs.rsp, NULL);
                 if (addr_in_section(e, ret_addr, ".text")) {
-                    // printf("adding bp to return address %p\n", ret_addr);
                     add_breakpoint(ret_addr);
                     depth += 1;
                 }
             }
-            
 
             regs.rip -= 1;
             ptrace(PTRACE_SETREGS, child, NULL, &regs);
-            // printf("restoring bp %p\n", bp_addr);
             restore_code(bp_addr, 1, e);
 
             ptrace(PTRACE_SINGLESTEP, child, NULL, NULL);
@@ -168,6 +215,11 @@ void trace(pid_t pid) {
             ptrace(PTRACE_CONT, child, NULL, WSTOPSIG(status));
         }
     }
+}
+
+void traced() {
+    if (ptrace(PTRACE_TRACEME, NULL, NULL, NULL) == -1) error("traceme failed");
+    if (execvp(traced_argv[0], traced_argv) == -1) error("could not execute file");
 }
 
 int main(int argc, char **argv) {
@@ -187,7 +239,8 @@ int main(int argc, char **argv) {
                 error("Option 'H' not yet supported sorry!");
                 break;
             case 'R':
-                error("Option 'R' not yet supported sorry!");
+                call_fmt = ">> %s\n";
+                ret_fmt = "<< %s = %d\n";
                 break;
             case 'o':
                 trace_fd = open(optarg, O_WRONLY | O_CREAT | O_TRUNC);
