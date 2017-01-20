@@ -110,15 +110,11 @@ bool in_blacklist(char *name) {
 
 int register_functions(struct elf *e) {
     int i;
-    char fmt_buf[FMT_LEN];
 
     for (i = 0; i < e->n_syms; i++) {
         if (sym_in_section(e, i, ".text") && !in_blacklist(get_sym_name(e, i))) {
-            add_breakpoint(get_sym_addr(e, i));
-
-            memset(fmt_buf, 0, sizeof(fmt_buf));
-            basic_func_fmt(e, i, fmt_buf, sizeof(fmt_buf));
-            func_fmts = add_format(func_fmts, get_sym_addr(e, i), i, fmt_buf);
+            if (add_breakpoint(get_sym_addr(e, i)) == -1) return -1;
+            func_fmts = add_format(func_fmts, get_sym_addr(e, i), i, NULL);
         }
     }
 

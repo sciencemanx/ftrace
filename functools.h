@@ -32,7 +32,8 @@ format_t *add_format(format_t *fmt, void *addr, int sym_i, char *str) {
 
 	new_fmt->addr = addr;
 	new_fmt->sym_i = sym_i;
-	strncpy(new_fmt->str, str, sizeof(new_fmt->str) - 1);
+	if (str == NULL) new_fmt->str[0] = 0;
+	else strncpy(new_fmt->str, str, sizeof(new_fmt->str) - 1);
 	new_fmt->fancy = false;
 	new_fmt->next = fmt;
 

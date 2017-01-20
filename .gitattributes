@@ -1,0 +1,5 @@
+*.md -crlf
+*.h -crlf
+*.c -crlf
+*.py -crlf
+Makefile -crlf
